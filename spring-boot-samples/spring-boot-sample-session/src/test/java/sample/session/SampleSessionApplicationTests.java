@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2017 the original author or authors.
+ * Copyright 2012-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,35 +42,42 @@ public class SampleSessionApplicationTests {
 
 	@Test
 	public void sessionExpiry() throws Exception {
-		ConfigurableApplicationContext context = new SpringApplicationBuilder()
-				.sources(SampleSessionApplication.class)
-				.properties("server.port:0", "server.session.timeout:1")
-				.initializers(new ServerPortInfoApplicationContextInitializer()).run();
+		ConfigurableApplicationContext context = createContext();
 		String port = context.getEnvironment().getProperty("local.server.port");
-
 		URI uri = URI.create("http://localhost:" + port + "/");
 		RestTemplate restTemplate = new RestTemplate();
-
-		HttpHeaders requestHeaders = new HttpHeaders();
-		requestHeaders.set("Authorization", "Basic "
-				+ Base64.getEncoder().encodeToString("user:password".getBytes()));
-
-		ResponseEntity<String> response = restTemplate.exchange(
-				new RequestEntity<>(requestHeaders, HttpMethod.GET, uri), String.class);
-		String sessionId1 = response.getBody();
-		requestHeaders.clear();
-		requestHeaders.set("Cookie", response.getHeaders().getFirst("Set-Cookie"));
-
-		RequestEntity<Void> request = new RequestEntity<>(requestHeaders, HttpMethod.GET,
-				uri);
-
-		String sessionId2 = restTemplate.exchange(request, String.class).getBody();
+		ResponseEntity<String> firstResponse = firstRequest(restTemplate, uri);
+		String sessionId1 = firstResponse.getBody();
+		String cookie = firstResponse.getHeaders().getFirst("Set-Cookie");
+		String sessionId2 = nextRequest(restTemplate, uri, cookie).getBody();
 		assertThat(sessionId1).isEqualTo(sessionId2);
-
 		Thread.sleep(1000);
-
-		String loginPage = restTemplate.exchange(request, String.class).getBody();
+		String loginPage = nextRequest(restTemplate, uri, cookie).getBody();
 		assertThat(loginPage).containsIgnoringCase("login");
+	}
+
+	private ConfigurableApplicationContext createContext() {
+		ConfigurableApplicationContext context = new SpringApplicationBuilder()
+				.sources(SampleSessionApplication.class)
+				.properties("server.port:0", "server.servlet.session.timeout:1")
+				.initializers(new ServerPortInfoApplicationContextInitializer()).run();
+		return context;
+	}
+
+	private ResponseEntity<String> firstRequest(RestTemplate restTemplate, URI uri) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("Authorization", "Basic "
+				+ Base64.getEncoder().encodeToString("user:password".getBytes()));
+		RequestEntity<Object> request = new RequestEntity<>(headers, HttpMethod.GET, uri);
+		return restTemplate.exchange(request, String.class);
+	}
+
+	private ResponseEntity<String> nextRequest(RestTemplate restTemplate, URI uri,
+			String cookie) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.set("Cookie", cookie);
+		RequestEntity<Object> request = new RequestEntity<>(headers, HttpMethod.GET, uri);
+		return restTemplate.exchange(request, String.class);
 	}
 
 }
